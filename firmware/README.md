@@ -15,6 +15,16 @@ their own and to be reusable by anyone building on the hardware.
 - **`protocol/`** — the command-socket protocol: the text/binary command set
   (`play`, `seek`, `speed`, `loop`, FX params…) plus a reference client. This is
   the control seam, and the same surface plugins use.
+- **`app/`** — the open navigate-only reference firmware: entry point + UI loop
+  (file browser driven by the GPIO buttons and cap-touch keys), with the synth
+  framework removed. The polished commercial player builds on top of this.
+
+## Phase 0 — synth removed
+
+The skeleton in `app/` is the prototype's UI lifted off the synth class
+hierarchy (`Patches → Engines`). See [`MIGRATION.md`](MIGRATION.md) for the exact
+keep/gut file manifest and the licensing actions that gate copying the remaining
+HAL implementations.
 
 ## Boundaries (open-core)
 
