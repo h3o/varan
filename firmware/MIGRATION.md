@@ -17,13 +17,25 @@ Varan_UI  ->  Patches  ->  Engines (dsp/Engines.h)  ->  ~40 DSP engines
 Phase 0 severs that: the new `app/varan_ui.cpp` inherits nothing and talks to
 peripherals through `hal/hal.h`. That single cut removes the entire synth.
 
+## Status: builds ✅
+
+`./firmware/build.sh` cross-compiles the navigate-only firmware with the Linaro
+GCC 5.5 toolchain into a real ARM hard-float ELF (`firmware/build/varan`). It
+links only the standard libs — **no `libasound`, no synth** — confirming the cut
+is clean. Migrated so far: the OLED stack (ssd1306 + Waveshare GUI/Fonts, MIT), a
+clean `hal/i2c.{h,c}`, `hal/display.{h,cpp}`, and `app/browser.h`. Still stubbed
+in `hal/hal.c` (next batch, from prototype `hw/`): LEDs, MPR121 cap-touch keys,
+MIDI.
+
 ## Landed in this repo (clean, MIT, authored fresh)
 
 | File | Role |
 |---|---|
 | `firmware/app/main.cpp` | linear bring-up entry (no board #ifdefs, no engine select) |
 | `firmware/app/varan_ui.{h,cpp}` | navigate-only UI, decoupled from `Engines` |
-| `firmware/hal/hal.h` | the HAL contract (LEDs, keys, MIDI, I2C) |
+| `firmware/hal/hal.h` + `hal.c` | the HAL contract + impl (i2c real; leds/keys/midi stubbed) |
+| `firmware/hal/i2c.{h,c}` | minimal MIT i2c layer for VR294 (replaces the board-#ifdef `peripherals.c`) |
+| `firmware/build.sh` | Linaro cross-compile |
 
 ## KEEP — migrate from prototype `hw/` (relicense → MIT, see below)
 
@@ -69,8 +81,8 @@ doesn't use them (Settings came in via TrackEngine; this board has no pots).
 
 ## Build
 
-The on-device build uses the **Buildroot SDK toolchain** (not the host
-compiler), targeting the 4.14 kernel / rootfs. A trimmed build script will be
-added once the HAL files land; it derives from the prototype's
-`autocompiler/autocompiler_v3s_*` scripts, minus the synth source list and the
-GPL/MVerb options.
+`./firmware/build.sh` (Linaro GCC 5.5, `arm-linux-gnueabihf`, `-std=gnu++11`).
+Everything is compiled as C++ — same as the prototype's autocompiler — so the
+`.c` drivers link against the C++ TUs. Override the toolchain with
+`TOOLCHAIN=/path/to/arm-linux-gnueabihf- ./build.sh` (note the trailing dash).
+Output: `firmware/build/varan` (git-ignored).

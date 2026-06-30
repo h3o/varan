@@ -1,0 +1,9 @@
+# build artifacts
+firmware/build/
+*.o
+*.d
+*.timestamp
+
+# editor / OS cruft
+*.swp
+.DS_Store
