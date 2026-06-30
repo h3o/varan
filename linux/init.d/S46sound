@@ -1,0 +1,35 @@
+#!/bin/sh
+#
+# Start the sound system....
+#
+
+case "$1" in
+  start)
+        printf "Starting the sound system: "
+
+        /root/enable_mic.sh
+
+        alsactl init -c 0
+        amixer -c 0 sset DAC 50
+        amixer -c 0 sset Headphone 48
+        amixer -c 0 set "Mic1" cap
+        amixer -c 0 sset 'Mic1 Boost' 3
+        amixer -c 0 sset "Mic1" 2
+	amixer -c 0 sset 'ADC Gain' 5
+
+        echo "OK"
+        ;;
+  stop)
+        printf "Stopping the sound system: "
+        echo "OK"
+        ;;
+  restart|reload)
+        "$0" stop
+        "$0" start
+        ;;
+  *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?

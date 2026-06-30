@@ -1,0 +1,65 @@
+#!/bin/sh
+#
+# Start the combined USB gadget (CDC ACM + MSG)....
+#
+
+case "$1" in
+  start)
+        printf "Starting the combined USB serial and mass storage gadget: "
+
+mount -t configfs none /sys/kernel/config
+cd /sys/kernel/config/usb_gadget/
+mkdir g1
+cd /sys/kernel/config/usb_gadget/g1
+echo "0x9ec0" > idVendor
+echo "0x2117" > idProduct
+mkdir strings/0x409
+echo "0000000034" > strings/0x409/serialnumber
+echo "Phonicbloom" > strings/0x409/manufacturer
+echo "Gechologic Loopstyler" > strings/0x409/product
+mkdir functions/acm.GS0
+mkdir functions/mass_storage.GS0
+mkdir configs/c.1
+mkdir configs/c.1/strings/0x409
+echo "CDC ACM+Mass Storage" > configs/c.1/strings/0x409/configuration
+#echo "CDC ACM" > configs/c.1/strings/0x409/configuration
+ln -s functions/acm.GS0 configs/c.1
+ln -s functions/mass_storage.GS0 configs/c.1
+echo "musb-hdrc.1.auto" > UDC
+
+cd /root/
+setsid getty -L -l /bin/sh -n 115200 /dev/ttyGS0 &
+setsid getty -L -l /bin/sh -n 115200 /dev/ttyS2 &
+
+echo 0 > /sys/kernel/config/usb_gadget/g1/functions/mass_storage.GS0/lun.0/ro
+#echo /dev/mtdblock4 > /sys/kernel/config/usb_gadget/g1/functions/mass_storage.GS0/lun.0/file
+#mount /dev/mtdblock4 /media
+
+#echo /dev/mmcblk0p1 > /sys/kernel/config/usb_gadget/g1/functions/mass_storage.GS0/lun.0/file
+echo /dev/mmcblk0p4 > /sys/kernel/config/usb_gadget/g1/functions/mass_storage.GS0/lun.0/file
+
+#mount /dev/mmcblk0p1 /media/sd
+
+mount /dev/mmcblk0p1 /boot
+#mount /dev/mmcblk0p4 /media/sd
+mount /dev/mmcblk0p4 /media
+
+        echo "OK"
+        ;;
+  stop)
+        printf "Stopping the combined USB gadget: "
+
+        echo "" > /sys/kernel/config/usb_gadget/g1/UDC
+        echo "OK"
+        ;;
+  restart|reload)
+        "$0" stop
+        "$0" start
+        ;;
+  *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?
+
