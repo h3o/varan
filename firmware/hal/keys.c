@@ -6,19 +6,18 @@
 // The register-init sequence is carried over from the prototype's
 // keyboard.c::init_MPR121() (board-agnostic, just i2c writes) and relicensed
 // MIT. Reads of the 2-byte touch-status register (0x00/0x01) are gated by the
-// chip's IRQ line (PE14/gpio142, active-low): the scan thread blocks in poll()
-// on the sysfs GPIO edge and only touches i2c when the MPR121 signals a change,
-// so bus-0 traffic (and CPU) are near zero at idle. If the IRQ GPIO can't be set
-// up we fall back to a plain timed poll.
+// chip's IRQ line (PE14, active-low): the scan thread checks the PE14 input
+// *level* straight from the PIO DATA register (mmap, no syscall) each tick and
+// only touches i2c when the MPR121 is asserting a change, so bus-0 traffic is
+// near zero at idle. (True edge interrupts aren't an option: the V3s only wires
+// EINT controllers to ports B and G, not E — there is no PE_EINT / sysfs edge.)
+// If /dev/mem can't be mapped we fall back to reading i2c every tick.
 
 #include "hal/keys.h"
 
-#include <errno.h>
 #include <fcntl.h>
-#include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -28,17 +27,18 @@
 #define ELE_THRESHOLD_TOUCH   0x0B
 #define ELE_THRESHOLD_RELEASE 0x06
 
-#define KEYS_SCAN_INTERVAL_US 16000  // timed-poll fallback period (~60 Hz)
-#define KEYS_IRQ_TIMEOUT_MS   500    // IRQ mode: safety-net re-read if no edge
+#define KEYS_SCAN_INTERVAL_US 8000   // ~125 Hz level check (i2c only when gated)
 #define KEYS_PAD_MASK         0x0FFF // ELE0..ELE11
 
-#define MPR121_IRQ_GPIO   142  // PE14, active-low, internal pull-up
-#define MPR121_IRQ_VALUE  "/sys/class/gpio/gpio142/value"
-#define MPR121_IRQ_EDGE   "/sys/class/gpio/gpio142/edge"
-#define MPR121_IRQ_DIR    "/sys/class/gpio/gpio142/direction"
-// PIO page + PE_PULL0 register offset, for the internal pull-up on PE14.
-#define PIO_PHYS_PAGE     0x01C20000u
-#define PE_PULL0_OFFSET   0x8ACu
+// V3s PIO block: mmap the enclosing 4K page; registers are at GPIO_OFFSET 0x800
+// with standard sunxi layout. The MPR121 IRQ is on PE14.
+#define PIO_PHYS_PAGE   0x01C20000u
+#define PIO_MAP_LEN     0x1000u
+#define REG_WORD(off)   ((off) / 4u)
+#define PE_CFG1_IDX     REG_WORD(0x800 + 0x94)  // PE pins 8..15 config
+#define PE_DAT_IDX      REG_WORD(0x800 + 0xA0)  // PE input/output data
+#define PE_PULL0_IDX    REG_WORD(0x800 + 0xAC)  // PE pins 0..15 pull
+#define IRQ_PIN         14                      // PE14
 
 static pthread_t      scan_thread;
 static volatile int   scan_running = 0;
@@ -115,53 +115,36 @@ static void emit_changes(uint16_t now, uint16_t *prev) {
   *prev = now;
 }
 
-static void sysfs_write(const char *path, const char *val) {
-  int fd = open(path, O_WRONLY);
-  if (fd >= 0) {
-    (void)!write(fd, val, strlen(val));
-    close(fd);
-  }
-}
-
-// Enable the PE14 internal pull-up (the IRQ is open-drain). Best-effort.
-static void enable_irq_pullup(void) {
-  int fd = open("/dev/mem", O_RDWR | O_SYNC);
-  if (fd < 0) return;
-  void *m = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, PIO_PHYS_PAGE);
-  close(fd);
-  if (m == MAP_FAILED) return;
-  volatile uint32_t *pull0 = (volatile uint32_t *)((char *)m + PE_PULL0_OFFSET);
-  uint32_t v = *pull0;
-  v &= ~(0x3u << 28);  // PE14 pull bits [29:28]
-  v |= (0x1u << 28);   // 01 = pull-up
-  *pull0 = v;
-  munmap(m, 0x1000);
-}
-
-static int edge_is_falling(void) {
-  int fd = open(MPR121_IRQ_EDGE, O_RDONLY);
-  if (fd < 0) return 0;
-  char b[16] = {0};
-  ssize_t n = read(fd, b, sizeof(b) - 1);
-  close(fd);
-  return n > 0 && strncmp(b, "falling", 7) == 0;
-}
-
-// Set the IRQ pin up as a falling-edge input with pull-up. Returns an open read
-// fd on the value file (*edge_ok set if edge interrupts are usable), or -1 if
-// the GPIO isn't available at all.
-static int configure_irq_gpio(int *edge_ok) {
-  sysfs_write("/sys/class/gpio/export", "142");  // ignored if already exported
-  sysfs_write(MPR121_IRQ_DIR, "in");
-  sysfs_write(MPR121_IRQ_EDGE, "falling");
-  enable_irq_pullup();
-  *edge_ok = edge_is_falling();
-  return open(MPR121_IRQ_VALUE, O_RDONLY);
-}
-
 static void log_read_timeout(unsigned *err_total) {
   if (++(*err_total) == 1 || (*err_total % 128) == 0)
     fprintf(stderr, "keys: MPR121 read timeouts: %u\n", *err_total);
+}
+
+// --- PE14 IRQ line, read as a GPIO input level via the PIO registers --------
+static volatile uint32_t *pio = 0;  // mapped PIO page, or NULL if unavailable
+
+static int pio_map(void) {
+  int fd = open("/dev/mem", O_RDWR | O_SYNC);
+  if (fd < 0) return 1;
+  void *m = mmap(NULL, PIO_MAP_LEN, PROT_READ | PROT_WRITE, MAP_SHARED, fd, PIO_PHYS_PAGE);
+  close(fd);
+  if (m == MAP_FAILED) return 1;
+  pio = (volatile uint32_t *)m;
+  return 0;
+}
+
+// Configure PE14 as a GPIO input with the internal pull-up (IRQ is open-drain).
+static void irq_pin_setup(void) {
+  pio[PE_CFG1_IDX] &= ~(0xFu << ((IRQ_PIN - 8) * 4));  // 0b000 = input
+  uint32_t v = pio[PE_PULL0_IDX];
+  v &= ~(0x3u << (IRQ_PIN * 2));
+  v |= (0x1u << (IRQ_PIN * 2));                          // 01 = pull-up
+  pio[PE_PULL0_IDX] = v;
+}
+
+// Active-low: the MPR121 is asserting (data pending) when PE14 reads 0.
+static int irq_asserted(void) {
+  return ((pio[PE_DAT_IDX] >> IRQ_PIN) & 1u) == 0;
 }
 
 static void *keys_scan(void *arg) {
@@ -169,53 +152,34 @@ static void *keys_scan(void *arg) {
   uint16_t prev = 0;
   unsigned err_total = 0;
 
-  int edge_ok = 0;
-  int irq_fd = configure_irq_gpio(&edge_ok);
-
-  if (irq_fd >= 0 && edge_ok) {
-    printf("keys: MPR121 IRQ-gated mode (gpio%d, falling edge)\n", MPR121_IRQ_GPIO);
-    struct pollfd pfd;
-    pfd.fd = irq_fd;
-    pfd.events = POLLPRI | POLLERR;
-
-    // Consume the initial level and clear any pending IRQ before waiting.
-    char c;
-    lseek(irq_fd, 0, SEEK_SET);
-    (void)!read(irq_fd, &c, 1);
-    {
-      uint16_t now;
-      if (read_status(&now) == 0) emit_changes(now, &prev);
-    }
-
-    while (scan_running) {
-      int r = poll(&pfd, 1, KEYS_IRQ_TIMEOUT_MS);
-      if (!scan_running) break;
-      if (r < 0) {
-        if (errno == EINTR) continue;
-        break;
-      }
-      if (r > 0) {  // edge fired: re-read the value to rearm the poll
-        lseek(irq_fd, 0, SEEK_SET);
-        (void)!read(irq_fd, &c, 1);
-      }
-      // On an edge (r>0) or the safety-net timeout (r==0): read the MPR121
-      // status (which de-asserts its IRQ) and emit any changes.
-      uint16_t now;
-      if (read_status(&now) == 0) emit_changes(now, &prev);
-      else log_read_timeout(&err_total);
-    }
+  int gated = (pio_map() == 0);
+  if (gated) {
+    irq_pin_setup();
+    printf("keys: MPR121 IRQ-gated mode (PE14 level, i2c only on assert)\n");
   } else {
-    printf("keys: MPR121 timed-poll mode (gpio%d edge unavailable)\n", MPR121_IRQ_GPIO);
-    if (irq_fd >= 0) { close(irq_fd); irq_fd = -1; }
-    while (scan_running) {
-      uint16_t now;
-      if (read_status(&now) == 0) emit_changes(now, &prev);
-      else log_read_timeout(&err_total);
-      usleep(KEYS_SCAN_INTERVAL_US);
-    }
+    printf("keys: MPR121 timed-poll mode (/dev/mem unavailable)\n");
   }
 
-  if (irq_fd >= 0) close(irq_fd);
+  // Prime once so the first real touch shows up as a change.
+  {
+    uint16_t now;
+    if (read_status(&now) == 0) emit_changes(now, &prev);
+  }
+
+  while (scan_running) {
+    // Only touch the bus when the chip is asserting (or if we can't gate).
+    if (!gated || irq_asserted()) {
+      uint16_t now;
+      if (read_status(&now) == 0) emit_changes(now, &prev);
+      else log_read_timeout(&err_total);
+    }
+    usleep(KEYS_SCAN_INTERVAL_US);
+  }
+
+  if (pio) {
+    munmap((void *)pio, PIO_MAP_LEN);
+    pio = 0;
+  }
   return NULL;
 }
 
