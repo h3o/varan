@@ -19,9 +19,11 @@
 #include <unistd.h>
 
 #include "audio/pcm_alsa.h"
+#include "audio/resampler.h"
 #include "minimp3_ex.h"
 
-#define READ_FRAMES 2048  // frames decoded/written per chunk (~46ms @44.1k)
+#define READ_FRAMES 2048  // frames decoded per chunk (~46ms @44.1k)
+#define OUT_FRAMES  8192  // resampled output headroom (2048 in * ratio 4)
 
 // --- synchronisation -------------------------------------------------------
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -34,6 +36,7 @@ static int             app_quit = 0;   // QUIT command -> app should exit
 // --- shared state (guarded by mtx) -----------------------------------------
 static engine_state state = ENG_STOPPED;
 static float        gain  = 1.0f;
+static float        speed = 1.0f;  // playback speed (tape-style)
 static char         cur_file[VARAN_CMD_ARG_MAX];
 static double       cur_pos = 0.0;  // seconds
 static double       cur_dur = 0.0;  // seconds
@@ -44,11 +47,17 @@ static char   req_path[VARAN_CMD_ARG_MAX];
 static double req_seek_sec = 0.0;
 static int    req_seek_rel = 0;
 
-// --- decoder (thread-private) ----------------------------------------------
+// --- decoder + resampler (thread-private) ----------------------------------
 static mp3dec_ex_t dec;
 static int         dec_open = 0;
 static int         dec_channels = 2;
 static int         dec_hz = 44100;
+static resampler  *rs = 0;
+
+static void apply_gain_i16(int16_t *b, int n, float g) {
+  if (g >= 0.999f) return;
+  for (int i = 0; i < n; i++) b[i] = (int16_t)(b[i] * g);
+}
 
 static void decoder_close(void) {
   if (dec_open) {
@@ -80,7 +89,8 @@ static void set_stopped_locked(void) {
 
 static void *engine_thread(void *arg) {
   (void)arg;
-  static int16_t buf[READ_FRAMES * 2];  // MP3 is at most 2 channels
+  static int16_t in_buf[READ_FRAMES * 2];   // decoded (MP3 is at most 2ch)
+  static int16_t out_buf[OUT_FRAMES * 2];   // resampled
 
   for (;;) {
     // ---- wait for something to do, then snapshot requests ----
@@ -100,12 +110,15 @@ static void *engine_thread(void *arg) {
     double seek_sec = req_seek_sec;
     int seek_rel = req_seek_rel;
     float g = gain;
+    float spd = speed;
     req_play = req_stop = req_pause = req_resume = req_seek = 0;
     pthread_mutex_unlock(&mtx);
 
     // ---- apply requests (decoder owned here, no lock needed for it) ----
     if (do_stop) {
       decoder_close();
+      resampler_destroy(rs);
+      rs = 0;
       pcm_close();
       pthread_mutex_lock(&mtx);
       set_stopped_locked();
@@ -114,8 +127,11 @@ static void *engine_thread(void *arg) {
 
     if (do_play) {
       decoder_close();
+      resampler_destroy(rs);
+      rs = 0;
       pcm_close();
       if (decoder_open(path) == 0 && pcm_open(dec_hz, dec_channels) == 0) {
+        rs = resampler_create(dec_channels);  // NULL -> engine falls back to 1x
         pthread_mutex_lock(&mtx);
         state = ENG_PLAYING;
         strncpy(cur_file, path, sizeof(cur_file) - 1);
@@ -138,6 +154,7 @@ static void *engine_thread(void *arg) {
       uint64_t target = (uint64_t)(base * dec_hz) * (uint64_t)dec_channels;
       if (target > dec.samples) target = dec.samples;
       mp3dec_ex_seek(&dec, target);
+      resampler_reset(rs);  // drop filter history across the jump
       pthread_mutex_lock(&mtx);
       cur_pos = (double)dec.cur_sample / dec_channels / dec_hz;
       pthread_mutex_unlock(&mtx);
@@ -161,21 +178,42 @@ static void *engine_thread(void *arg) {
 
     if (st == ENG_PLAYING && dec_open) {
       size_t want = (size_t)READ_FRAMES * dec_channels;
-      size_t got = mp3dec_ex_read(&dec, buf, want);
+      size_t got = mp3dec_ex_read(&dec, in_buf, want);
       if (got == 0) {
         // end of file
         pcm_drain();
         decoder_close();
+        resampler_destroy(rs);
+        rs = 0;
         pcm_close();
         pthread_mutex_lock(&mtx);
         cur_pos = cur_dur;
         state = ENG_STOPPED;
         pthread_mutex_unlock(&mtx);
       } else {
-        if (g < 0.999f) {
-          for (size_t i = 0; i < got; i++) buf[i] = (int16_t)(buf[i] * g);
+        int in_frames = (int)(got / dec_channels);
+        if (rs) {
+          // Tape-speed: resample by ratio = 1/speed, feeding the whole chunk
+          // (may take several calls if the output buffer fills first).
+          double ratio = 1.0 / (spd > 0.0f ? spd : 1.0);
+          int off = 0;
+          while (off < in_frames) {
+            int in_used = 0, out_gen = 0;
+            if (resampler_process(rs, ratio, in_buf + off * dec_channels,
+                                   in_frames - off, out_buf, OUT_FRAMES,
+                                   &in_used, &out_gen) != 0)
+              break;
+            if (out_gen > 0) {
+              apply_gain_i16(out_buf, out_gen * dec_channels, g);
+              pcm_write(out_buf, out_gen);
+            }
+            if (in_used <= 0 && out_gen <= 0) break;  // safety
+            off += in_used;
+          }
+        } else {
+          apply_gain_i16(in_buf, (int)got, g);
+          pcm_write(in_buf, in_frames);
         }
-        pcm_write(buf, (int)(got / dec_channels));
         pthread_mutex_lock(&mtx);
         cur_pos = (double)dec.cur_sample / dec_channels / dec_hz;
         pthread_mutex_unlock(&mtx);
@@ -184,6 +222,8 @@ static void *engine_thread(void *arg) {
   }
 
   decoder_close();
+  resampler_destroy(rs);
+  rs = 0;
   pcm_close();
   return 0;
 }
@@ -255,6 +295,14 @@ void engine_seek(double seconds, int relative) {
   pthread_mutex_unlock(&mtx);
 }
 
+void engine_set_speed(double ratio) {
+  if (ratio < 0.25) ratio = 0.25;
+  if (ratio > 4.0) ratio = 4.0;
+  pthread_mutex_lock(&mtx);
+  speed = (float)ratio;
+  pthread_mutex_unlock(&mtx);
+}
+
 void engine_set_gain(double gain01) {
   if (gain01 < 0.0) gain01 = 0.0;
   if (gain01 > 1.0) gain01 = 1.0;
@@ -268,8 +316,8 @@ void engine_status(char *buf, size_t n) {
   const char *s = state == ENG_PLAYING ? "playing"
                   : state == ENG_PAUSED ? "paused"
                                         : "stopped";
-  snprintf(buf, n, "state=%s file=%s pos=%.2f dur=%.2f gain=%.2f", s,
-           cur_file[0] ? cur_file : "-", cur_pos, cur_dur, gain);
+  snprintf(buf, n, "state=%s file=%s pos=%.2f dur=%.2f speed=%.3f gain=%.2f", s,
+           cur_file[0] ? cur_file : "-", cur_pos, cur_dur, speed, gain);
   pthread_mutex_unlock(&mtx);
 }
 
@@ -304,6 +352,10 @@ void engine_apply(const varan_cmd *c, char *resp, size_t rn) {
       engine_seek(c->num, c->relative);
       if (resp) snprintf(resp, rn, "OK seek %.2f%s", c->num,
                          c->relative ? " (rel)" : "");
+      break;
+    case CMD_SPEED:
+      engine_set_speed(c->num);
+      if (resp) snprintf(resp, rn, "OK speed %.3f", c->num);
       break;
     case CMD_GAIN:
       engine_set_gain(c->num);

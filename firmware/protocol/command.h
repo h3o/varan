@@ -25,6 +25,7 @@ typedef enum {
   CMD_RESUME,  // resume
   CMD_STOP,    // stop
   CMD_SEEK,    // seek <sec> | seek +<sec> | seek -<sec>
+  CMD_SPEED,   // speed <ratio> (tape-style: 0.25..4.0)
   CMD_GAIN,    // gain <0..1>
   CMD_STATUS,  // status
   CMD_QUIT,    // quit

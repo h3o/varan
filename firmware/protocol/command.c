@@ -11,7 +11,7 @@
 
 static const char *kNames[] = {
     "none", "play", "pause", "resume", "stop",
-    "seek", "gain", "status", "quit", "unknown"};
+    "seek", "speed", "gain", "status", "quit", "unknown"};
 
 const char *varan_cmd_name(varan_cmd_type t) {
   if (t < CMD_NONE || t > CMD_UNKNOWN) return "?";
@@ -42,6 +42,7 @@ int varan_cmd_parse(const char *line, varan_cmd *out) {
   else if (!strcmp(verb, "resume")) out->type = CMD_RESUME;
   else if (!strcmp(verb, "stop"))   out->type = CMD_STOP;
   else if (!strcmp(verb, "seek"))   out->type = CMD_SEEK;
+  else if (!strcmp(verb, "speed"))  out->type = CMD_SPEED;
   else if (!strcmp(verb, "gain"))   out->type = CMD_GAIN;
   else if (!strcmp(verb, "status")) out->type = CMD_STATUS;
   else if (!strcmp(verb, "quit") || !strcmp(verb, "exit")) out->type = CMD_QUIT;
@@ -57,7 +58,7 @@ int varan_cmd_parse(const char *line, varan_cmd *out) {
   } else if (out->type == CMD_SEEK) {
     if (*arg == '+' || *arg == '-') out->relative = 1;
     out->num = atof(arg);
-  } else if (out->type == CMD_GAIN) {
+  } else if (out->type == CMD_SPEED || out->type == CMD_GAIN) {
     out->num = atof(arg);
   }
   return 0;

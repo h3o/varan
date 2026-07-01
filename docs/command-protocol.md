@@ -27,12 +27,14 @@ reply line (`OK ...`, a `status` line, or `ERR ...`). The FIFO discards replies.
 | `stop` | stop, release the file | `OK stop` |
 | `seek SEC` | absolute position in seconds (float) | `OK seek SEC` |
 | `seek +SEC` / `seek -SEC` | relative jump | `OK seek SEC (rel)` |
+| `speed R` | tape-style speed, `0.25`–`4.0`: `1.0` normal, `<1` slower+lower, `>1` faster+higher (pitch coupled) | `OK speed R` |
 | `gain G` | output level, `0.0`–`1.0` | `OK gain G` |
-| `status` | current state | `state=… file=… pos=… dur=… gain=…` |
+| `status` | current state | `state=… file=… pos=… dur=… speed=… gain=…` |
 | `quit` | shut the app down | `OK quit` |
 
 `status` fields: `state` ∈ `stopped|playing|paused`; `pos`/`dur` in seconds;
-`gain` 0–1. Example: `state=playing file=/mnt/SD/track.mp3 pos=12.34 dur=210.5 gain=1.00`.
+`speed` the tape ratio; `gain` 0–1. Example:
+`state=playing file=/mnt/SD/track.mp3 pos=12.34 dur=210.5 speed=1.000 gain=1.00`.
 
 ### Examples
 
@@ -40,6 +42,7 @@ reply line (`OK ...`, a `status` line, or `ERR ...`). The FIFO discards replies.
 echo 'play /mnt/SD/track.mp3' > /tmp/varan/cmd     # fire-and-forget
 printf 'status\n' | socat - UNIX-CONNECT:/tmp/varan/ctl
 printf 'seek +30\n' | socat - UNIX-CONNECT:/tmp/varan/ctl
+echo 'speed 0.85' > /tmp/varan/cmd                 # slow down (lower pitch)
 printf 'gain 0.5\n'  | socat - UNIX-CONNECT:/tmp/varan/ctl
 ```
 
@@ -50,7 +53,6 @@ browser (RIGHT on a regular file) issues `play <path>` internally.
 
 | Command | Meaning |
 |---|---|
-| `speed RATIO` | tape-style speed; `1.0` normal, `0.92` slower+lower, `1.05` faster+higher (libsamplerate, Slice 2) |
 | `loop START END` / `loop off` | loop between two marks (seconds) |
 | `fx NAME PARAM VALUE` / `fx NAME on|off` | effect params, e.g. `fx reverb mix 0.3` |
 | `next` / `prev` | playlist navigation |

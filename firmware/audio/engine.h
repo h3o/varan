@@ -31,6 +31,7 @@ void engine_pause(void);
 void engine_resume(void);
 void engine_stop(void);
 void engine_seek(double seconds, int relative);
+void engine_set_speed(double ratio);  // tape-style, clamped 0.25..4.0
 void engine_set_gain(double gain01);
 
 // Dispatch a parsed command; if resp is non-NULL, writes a one-line reply.

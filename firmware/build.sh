@@ -41,14 +41,17 @@ SRC=(
   hal/oled/Fonts/font24.c
   protocol/command.c
   audio/pcm_alsa.c
+  audio/resampler.c
   audio/engine.c
   audio/cmd_listener.c
   audio/minimp3_impl.c
 )
 
-# ALSA lives in the prototype's cross prefix (/usr/v3slib); minimp3 is vendored.
+# ALSA lives in the prototype's cross prefix (/usr/v3slib); minimp3 + libsamplerate
+# are vendored under audio/vendor/.
 ALSA_PREFIX="${ALSA_PREFIX:-/usr/v3slib}"
-INCLUDES=(-I. -Ihal -Ihal/oled -Iaudio -Iprotocol -Iaudio/vendor/minimp3 "-I${ALSA_PREFIX}/include")
+LSR_DIR="audio/vendor/libsamplerate"
+INCLUDES=(-I. -Ihal -Ihal/oled -Iaudio -Iprotocol -Iaudio/vendor/minimp3 "-I${LSR_DIR}" "-I${ALSA_PREFIX}/include")
 # SSD1306_ROTATE = 180° flip (COM scan + column order), matching how the OLED is
 # mounted on the production VR29x board. Drop it if a board mounts the panel the
 # other way up.
@@ -56,9 +59,22 @@ DEFINES=(-DUSE_SSD1306 -DBOARD_VR291 -DSSD1306_ROTATE)
 CXXFLAGS=(-O2 -ffast-math -std=gnu++11 -Wno-write-strings -g)
 LIBS=("-L${ALSA_PREFIX}/lib" -lasound -lpthread -lstdc++fs -lm -lrt -ldl)
 
+# libsamplerate is plain C (not C++-clean), so compile its TUs with the C
+# compiler and only the FAST sinc converter (see its config.h), then link the
+# objects into the C++ build.
+CC="${TOOLCHAIN}gcc"
+LSR_SRC=(samplerate.c src_linear.c src_sinc.c src_zoh.c)
+LSR_OBJS=()
+for s in "${LSR_SRC[@]}"; do
+  obj="$OUT_DIR/lsr_${s%.c}.o"
+  echo "CC  $LSR_DIR/$s"
+  "$CC" -O2 -ffast-math -std=gnu99 -DHAVE_CONFIG_H "-I${LSR_DIR}" -c "$LSR_DIR/$s" -o "$obj"
+  LSR_OBJS+=("$obj")
+done
+
 echo "CXX: $CXX"
 echo "Building $OUT ..."
-"$CXX" "${CXXFLAGS[@]}" "${DEFINES[@]}" "${INCLUDES[@]}" "${SRC[@]}" -o "$OUT" "${LIBS[@]}"
+"$CXX" "${CXXFLAGS[@]}" "${DEFINES[@]}" "${INCLUDES[@]}" "${SRC[@]}" "${LSR_OBJS[@]}" -o "$OUT" "${LIBS[@]}"
 
 echo "Built: $OUT"
 "${TOOLCHAIN}size" "$OUT" 2>/dev/null || true
