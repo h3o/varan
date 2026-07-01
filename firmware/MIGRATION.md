@@ -30,14 +30,18 @@ cap-touch keyboard `hal/keys.{c,h}`.
 and SD browsing all work on the device. (OLED orientation fixed by enabling
 `SSD1306_ROTATE` — the prototype defines it for its production board.)
 
+**LEDs done (2026-07-01):** `hal/leds.{c,h}` — a fresh direct-register driver.
+The prototype had no VR29x LED driver to migrate (the `*_gingko` functions are
+RDA8810-only), so this was written from the board's GPIO map
+(`linux/root/all_LEDs_init.sh`): 24 LEDs = six status + a nine-position ring of
+outer-blue/inner-green pairs. It mmaps the V3s PIO page (0x01C20000, block at
++0x800) and drives only the per-port DATA registers — pin directions are set at
+boot by `all_LEDs_init.sh`. Polarity: PE12 (red power) active-high, the rest
+active-low. 18 ring LEDs are on port E, so the ring can be updated in one write
+(the hook for future PWM).
+
 Still stubbed in `hal/hal.c`:
 
-- **LEDs — blocked, not just unmigrated.** The prototype has **no VR29x LED
-  driver**: `init_leds_gingko`/`startup_leds_animation_gingko` live in
-  `peripherals_RDA8810.c` and are only called under `#ifdef BOARD_RDA8810`.
-  `leds.c` contains zero VR291 code; `leds.h` only declares the board's geometry
-  (`LEDS_N 23`, a 2x9 matrix + a blue LED). Wiring the LEDs needs the board's LED
-  circuit (GPIO/driver-chip), which lives in the private board repo.
 - **MIDI — deferred to Phase 1.** The prototype `midi.c` is a synth *note*
   parser; the player wants MIDI-CC -> playback commands, which is the command
   surface built in Phase 1.
@@ -61,7 +65,7 @@ Still stubbed in `hal/hal.c`:
 | `hw/SDcard_utils.{cpp,h}` | `firmware/app/` | path/listing helpers |
 | `hw/keyboard.{c,h}` | ✅ `hal/keys.{c,h}` | **done** — clean rewrite (MPR121 init + touch scan); dropped the synth aftertouch/velocity/note/menu machinery, and the VR29x `indicate_keyboard` was an empty stub anyway |
 | `hw/peripherals.{c,h}` (+ V3s parts only) | ✅ `hal/i2c.{c,h}` | I2C/GPIO base done as the clean i2c layer |
-| `hw/leds.{c,h}` | ⛔ blocked | no VR29x LED driver exists to migrate (see above); needs board LED wiring |
+| `hw/leds.{c,h}` | ✅ `hal/leds.{c,h}` | **done** — fresh direct-register (/dev/mem PIO) driver from the board GPIO map; no VR29x driver existed to port |
 | `hw/midi.{c,h}` | ⏭ Phase 1 | synth note parser; player wants MIDI-CC -> playback |
 | `hw/commands.{c,h}` | ✅ `hal/i2c.{c,h}` | `i2c_init` / `i2c_deinit` folded into the i2c layer |
 

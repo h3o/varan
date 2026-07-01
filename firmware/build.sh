@@ -30,6 +30,7 @@ SRC=(
   hal/hal.c
   hal/i2c.c
   hal/keys.c
+  hal/leds.c
   hal/display.cpp
   hal/oled/ssd1306.c
   hal/oled/GUI/GUI_Paint.c

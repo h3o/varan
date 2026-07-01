@@ -3,10 +3,9 @@
 //
 // hal.c — implementations behind hal.h.
 //
-// Phase 0 scope: i2c and the MPR121 cap-touch keyboard are real; LEDs and MIDI
-// are still stubbed. LEDs are blocked on the board's LED wiring (the prototype
-// never implemented a VR29x LED driver — only the RDA8810 "gingko" one); MIDI
-// is the Phase 1 control surface. See firmware/MIGRATION.md.
+// Phase 0 scope: i2c, the MPR121 cap-touch keyboard, and the LEDs are real.
+// MIDI is still stubbed — it's the Phase 1 control surface, not the prototype's
+// synth note parser. See firmware/MIGRATION.md.
 
 #include "hal/hal.h"
 
@@ -14,13 +13,14 @@
 
 #include "hal/i2c.h"
 #include "hal/keys.h"
+#include "hal/leds.h"
 
 // --- LEDs ------------------------------------------------------------------
-// No-ops for now: the prototype has no VR29x LED driver to migrate, and the
-// LED matrix wiring (leds.h: 23 LEDs, 2x9 + blue) lives in the board repo.
-void hal_leds_init(void)              { /* TODO: needs VR29x LED wiring */ }
-void hal_leds_startup_animation(void) { /* TODO: needs VR29x LED wiring */ }
-void hal_leds_all_off(void)           { /* TODO: needs VR29x LED wiring */ }
+// Real: direct-register driver over /dev/mem (hal/leds.{c,h}). Pin directions
+// come from linux/root/all_LEDs_init.sh at boot; this only drives DATA bits.
+void hal_leds_init(void)              { leds_init(); }
+void hal_leds_startup_animation(void) { leds_startup_animation(); }
+void hal_leds_all_off(void)           { leds_all_off(); }
 
 // --- Cap-touch keyboard (MPR121) ------------------------------------------
 static void hal_keys_log_cb(int pad, int pressed) {

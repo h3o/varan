@@ -15,9 +15,9 @@
 extern "C" {
 #endif
 
-// --- LEDs (the board's 23-LED matrix: 2x9 + blue) -------------------------
-// Stubbed: the prototype never shipped a VR29x LED driver (only an RDA8810
-// one), so the LED wiring has to come from the board repo before this is real.
+// --- LEDs (24: six status + a 9-position ring of blue/green pairs) ---------
+// Implemented in hal/leds.{c,h} via direct PIO register writes over /dev/mem.
+// Pin directions are set at boot by linux/root/all_LEDs_init.sh.
 void hal_leds_init(void);
 void hal_leds_startup_animation(void);
 void hal_leds_all_off(void);
