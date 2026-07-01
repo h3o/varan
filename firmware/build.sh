@@ -40,7 +40,10 @@ SRC=(
 )
 
 INCLUDES=(-I. -Ihal -Ihal/oled)
-DEFINES=(-DUSE_SSD1306 -DBOARD_VR291)
+# SSD1306_ROTATE = 180° flip (COM scan + column order), matching how the OLED is
+# mounted on the production VR29x board. Drop it if a board mounts the panel the
+# other way up.
+DEFINES=(-DUSE_SSD1306 -DBOARD_VR291 -DSSD1306_ROTATE)
 CXXFLAGS=(-O2 -ffast-math -std=gnu++11 -Wno-write-strings -g)
 LIBS=(-lpthread -lstdc++fs -lm -lrt)
 

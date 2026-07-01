@@ -70,23 +70,18 @@ public:
     // Main update loop - call this repeatedly
     void update() {
 
-    	printf("SDcard_browser()::update()\n");
-
     	int button = read_buttons();
 
-        // Simple debouncing
+        // Simple debouncing: silently ignore presses inside the window.
         auto now = std::chrono::steady_clock::now();
 
         if (now - lastButtonPress < debounceDelay) {
-
-        	printf("SDcard_browser()::update(): button #%d debounced! (now=%d, lastButtonPress=%d, debounceDelay=%d)\n", button, now, lastButtonPress, debounceDelay);
-
         	return;
         }
 
         if (button != NONE) {
 
-        	printf("SDcard_browser()::update(): button #%d pressed\n", button);
+        	printf("browser: button #%d pressed\n", button);
 
         	lastButtonPress = now;
             handleButton(button);
@@ -95,9 +90,6 @@ public:
     }
 
     void updateButtons(int buttons) {
-
-    	printf("SDcard_browser()::updateButtons(buttons=%d)\n", buttons);
-
     	buttons_state = buttons;
     }
 
@@ -105,7 +97,7 @@ public:
     void updateDisplay() {
         std::string line1, line2;
 
-        printf("SDcard_browser()::updateDisplay()\n");
+        printf("browser: updateDisplay()\n");
 
         if (inFileView) {
             // Show file content
@@ -126,13 +118,10 @@ public:
     }
 
 private:
-    // Dummy hardware interface methods
+    // Returns the latched action: 0=none, 1=up, 2=down, 3=left, 4=right.
+    // The actual GPIO/cap-touch reading lives in VaranUI::read_buttons(); it
+    // feeds us via updateButtons().
     int read_buttons() {
-        // TODO: Replace with actual hardware reading
-        // Returns: 0=none, 1=up, 2=down, 3=left, 4=right
-
-    	printf("SDcard_browser()::read_buttons()\n");
-
     	int bs = buttons_state;
     	buttons_state = 0;
 
@@ -241,7 +230,7 @@ private:
 
     void openFile(const fs::path& filePath) {
 
-    	printf("SDcard_browser()::openFile(const fs::path& filePath=%s)\n", filePath);
+    	printf("browser: openFile(%s)\n", filePath.c_str());
     	/*
     	try {
             // For demo purposes, just read first few lines
