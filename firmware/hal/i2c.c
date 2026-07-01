@@ -99,15 +99,32 @@ int i2cset_w(int device, uint8_t reg, uint8_t val1, uint8_t val2) {
   return 0;
 }
 
-int i2cget(int device, uint8_t reg, uint8_t *val, int bytes) {
-  if (!i2c_valid(device)) { fprintf(stderr, "i2cget: bad device %d\n", device); return 1; }
-  if (write(i2c_fd[device], &reg, 1) != 1) {
-    fprintf(stderr, "i2cget: addr write error %d\n", errno);
-    return 2;
+static uint8_t i2c_addr(int device) {
+  switch (device) {
+    case I2C_ACC:  return ACC_I2C_ADDR;
+    case I2C_CAP:  return CAP_I2C_ADDR;
+    case I2C_OLED: return OLED_I2C_ADDRESS;
   }
-  if (read(i2c_fd[device], val, bytes) != bytes) {
-    fprintf(stderr, "i2cget: read error %d\n", errno);
-    return 3;
+  return 0;
+}
+
+int i2cget(int device, uint8_t reg, uint8_t *val, int bytes) {
+  if (!i2c_valid(device)) return 1;
+  // One atomic transaction (repeated START, no STOP between the register write
+  // and the read). Doing write()+read() as two transactions can wedge the
+  // sunxi/mv64xxx controller ("I2C bus locked") under load, so use I2C_RDWR.
+  struct i2c_msg msgs[2];
+  msgs[0].addr  = i2c_addr(device);
+  msgs[0].flags = 0;
+  msgs[0].len   = 1;
+  msgs[0].buf   = &reg;
+  msgs[1].addr  = i2c_addr(device);
+  msgs[1].flags = I2C_M_RD;
+  msgs[1].len   = (uint16_t)bytes;
+  msgs[1].buf   = val;
+  struct i2c_rdwr_ioctl_data xfer = { msgs, 2 };
+  if (ioctl(i2c_fd[device], I2C_RDWR, &xfer) < 0) {
+    return 3;  // caller decides whether/how to log (kept quiet to avoid spam)
   }
   return 0;
 }

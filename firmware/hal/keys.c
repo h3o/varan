@@ -22,7 +22,7 @@
 #define ELE_THRESHOLD_TOUCH   0x0B
 #define ELE_THRESHOLD_RELEASE 0x06
 
-#define KEYS_SCAN_INTERVAL_US 8000   // ~125 Hz status poll
+#define KEYS_SCAN_INTERVAL_US 16000  // ~60 Hz status poll (plenty for touch)
 #define KEYS_PAD_MASK         0x0FFF // ELE0..ELE11
 
 static pthread_t      scan_thread;
@@ -79,6 +79,7 @@ int keys_init(void) {
 static void *keys_scan(void *arg) {
   (void)arg;
   uint16_t prev = 0;
+  unsigned err_total = 0;
 
   while (scan_running) {
     uint8_t buf[2] = {0, 0};
@@ -98,6 +99,10 @@ static void *keys_scan(void *arg) {
         }
         prev = now;
       }
+    } else {
+      // Transient bus timeout/lock: skip this cycle, log sparsely.
+      if (++err_total == 1 || (err_total % 128) == 0)
+        fprintf(stderr, "keys: MPR121 read timeouts: %u\n", err_total);
     }
     usleep(KEYS_SCAN_INTERVAL_US);
   }
