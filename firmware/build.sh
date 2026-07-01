@@ -39,15 +39,22 @@ SRC=(
   hal/oled/Fonts/font16.c
   hal/oled/Fonts/font20.c
   hal/oled/Fonts/font24.c
+  protocol/command.c
+  audio/pcm_alsa.c
+  audio/engine.c
+  audio/cmd_listener.c
+  audio/minimp3_impl.c
 )
 
-INCLUDES=(-I. -Ihal -Ihal/oled)
+# ALSA lives in the prototype's cross prefix (/usr/v3slib); minimp3 is vendored.
+ALSA_PREFIX="${ALSA_PREFIX:-/usr/v3slib}"
+INCLUDES=(-I. -Ihal -Ihal/oled -Iaudio -Iprotocol -Iaudio/vendor/minimp3 "-I${ALSA_PREFIX}/include")
 # SSD1306_ROTATE = 180° flip (COM scan + column order), matching how the OLED is
 # mounted on the production VR29x board. Drop it if a board mounts the panel the
 # other way up.
 DEFINES=(-DUSE_SSD1306 -DBOARD_VR291 -DSSD1306_ROTATE)
 CXXFLAGS=(-O2 -ffast-math -std=gnu++11 -Wno-write-strings -g)
-LIBS=(-lpthread -lstdc++fs -lm -lrt)
+LIBS=("-L${ALSA_PREFIX}/lib" -lasound -lpthread -lstdc++fs -lm -lrt -ldl)
 
 echo "CXX: $CXX"
 echo "Building $OUT ..."

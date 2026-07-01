@@ -55,7 +55,13 @@ private:
     Display *disp; //reference to OLED driver object
     int buttons_state = 0;
 
+    // Invoked when a regular file is opened (RIGHT on a file). Wired by the UI
+    // to the audio engine; keeps the browser free of any engine dependency.
+    void (*on_open_cb)(const char *) = nullptr;
+
 public:
+    void set_open_callback(void (*cb)(const char *)) { on_open_cb = cb; }
+
     FileSystemBrowser(Display *display, const std::string& startPath = ".")
         : currentPath(fs::absolute(startPath))
         , selectedIndex(0)
@@ -231,6 +237,7 @@ private:
     void openFile(const fs::path& filePath) {
 
     	printf("browser: openFile(%s)\n", filePath.c_str());
+    	if (on_open_cb) on_open_cb(filePath.c_str());
     	/*
     	try {
             // For demo purposes, just read first few lines

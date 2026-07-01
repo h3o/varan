@@ -1,64 +1,72 @@
 # Command protocol
 
-> **Draft.** This documents the *intended* shape of the control seam. It will
-> firm up as the player core is implemented; treat specifics as provisional.
+The audio engine exposes a local, line-oriented **text** control protocol — the
+open seam between the app / MIDI-CC mapper / shell scripts / plugins and the
+engine. Whatever the UI can do, any client can do.
 
-The engine exposes a local **command socket** (Unix domain socket; a FIFO pair is
-the fallback). Clients — the UI, the MIDI-CC mapper, shell scripts, and plugins —
-send line-oriented text commands and receive line-oriented replies/events.
+## Transports
 
-## Transport & playback
+Both live under the run dir (`/tmp/varan/`, see `cmd_listener_dir()`), created at
+startup:
+
+| Path | Kind | Direction | Use |
+|---|---|---|---|
+| `/tmp/varan/cmd` | FIFO | write-only, fire-and-forget | scripts / init: `echo play /mnt/SD/x.mp3 > /tmp/varan/cmd` |
+| `/tmp/varan/ctl` | Unix stream socket | request → one-line reply | status queries, tooling: `socat - UNIX-CONNECT:/tmp/varan/ctl` |
+
+Commands are newline-terminated. On the socket, each command gets exactly one
+reply line (`OK ...`, a `status` line, or `ERR ...`). The FIFO discards replies.
+
+## Implemented (Phase 1, Slice 1)
+
+| Command | Meaning | Socket reply |
+|---|---|---|
+| `play PATH` | load and play an MP3 (whole remainder is the path) | `OK play PATH` |
+| `pause` | pause, keep position | `OK pause` |
+| `resume` | resume from pause | `OK resume` |
+| `stop` | stop, release the file | `OK stop` |
+| `seek SEC` | absolute position in seconds (float) | `OK seek SEC` |
+| `seek +SEC` / `seek -SEC` | relative jump | `OK seek SEC (rel)` |
+| `gain G` | output level, `0.0`–`1.0` | `OK gain G` |
+| `status` | current state | `state=… file=… pos=… dur=… gain=…` |
+| `quit` | shut the app down | `OK quit` |
+
+`status` fields: `state` ∈ `stopped|playing|paused`; `pos`/`dur` in seconds;
+`gain` 0–1. Example: `state=playing file=/mnt/SD/track.mp3 pos=12.34 dur=210.5 gain=1.00`.
+
+### Examples
+
+```sh
+echo 'play /mnt/SD/track.mp3' > /tmp/varan/cmd     # fire-and-forget
+printf 'status\n' | socat - UNIX-CONNECT:/tmp/varan/ctl
+printf 'seek +30\n' | socat - UNIX-CONNECT:/tmp/varan/ctl
+printf 'gain 0.5\n'  | socat - UNIX-CONNECT:/tmp/varan/ctl
+```
+
+The UI also drives the engine through the same path: opening a file in the
+browser (RIGHT on a regular file) issues `play <path>` internally.
+
+## Planned (later slices)
 
 | Command | Meaning |
 |---|---|
-| `play [PATH]` | start/resume; with a path, load and play it |
-| `pause` | pause, keep position |
-| `stop` | stop, release the file |
+| `speed RATIO` | tape-style speed; `1.0` normal, `0.92` slower+lower, `1.05` faster+higher (libsamplerate, Slice 2) |
+| `loop START END` / `loop off` | loop between two marks (seconds) |
+| `fx NAME PARAM VALUE` / `fx NAME on|off` | effect params, e.g. `fx reverb mix 0.3` |
 | `next` / `prev` | playlist navigation |
-| `seek SECONDS` | absolute position, in seconds (float) |
-| `seek +SECONDS` / `seek -SECONDS` | relative jump |
-
-## Speed / "tuning"
-
-| Command | Meaning |
-|---|---|
-| `speed RATIO` | tape-style; `1.0` = normal, `0.92` slower+lower, `1.05` faster+higher |
-
-(Pitch-preserving stretch is a later addition and would get its own command.)
-
-## Loop slices
-
-| Command | Meaning |
-|---|---|
-| `loop START END` | loop between two marks (seconds) |
-| `loop off` | clear the loop |
-
-## Effects
-
-| Command | Meaning |
-|---|---|
-| `fx NAME PARAM VALUE` | set an effect parameter, e.g. `fx reverb mix 0.3` |
-| `fx NAME on` / `fx NAME off` | enable/disable an effect |
-
-## Query & events
-
-| Command | Meaning |
-|---|---|
-| `status` | reply with current file, position, speed, loop, fx state |
-| `subscribe` | stream asynchronous events (position ticks, track changes, input) |
+| `subscribe` | stream async events (position ticks, track changes) |
 
 ## MIDI-CC mapping
 
-MIDI is not a separate protocol: a mapper process translates incoming CC messages
-into these commands (e.g. a CC → `speed`, another CC → `seek +/-`, a note →
-`loop`/transport). The mapping is configuration, so users can remap without
-rebuilding anything.
+MIDI is not a separate protocol: a mapper translates incoming CC messages into
+these commands (a CC → `speed`, another → `seek +/-`, a note → `loop`/transport).
+The mapping is configuration — users remap without rebuilding.
 
 ## Design notes
 
-- **Text first.** Human-typeable over the USB serial console for debugging; a
-  binary fast-path can be added later for high-rate event streams if needed.
-- **One socket, all clients.** First-party UI and third-party plugins are
-  symmetric — whatever the UI can do, a plugin can do.
-- **Stateless commands, stateful engine.** Commands mutate engine state; clients
-  resync with `status`/`subscribe` rather than assuming.
+- **Text first.** Human-typeable over the serial console for debugging; a binary
+  fast-path can come later for high-rate event streams.
+- **One protocol, all clients.** First-party UI and third-party plugins are
+  symmetric.
+- **Stateless commands, stateful engine.** Clients resync with `status` rather
+  than assuming.

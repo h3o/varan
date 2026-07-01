@@ -19,9 +19,14 @@
 // Migrated alongside this skeleton (see firmware/MIGRATION.md):
 #include "hal/display.h"   // class Display  (OLED, ex hw/Display.h)
 #include "app/browser.h"   // class FileSystemBrowser (ex hw/SDcard_browser.h)
+#include "audio/engine.h"  // audio engine (Phase 1)
 
 // Defined in main.cpp; set by the SIGINT handler.
 extern volatile sig_atomic_t exit_program;
+
+// Browser "open file" -> start playback. Kept as a free function so the browser
+// only needs a plain C callback, not an engine dependency.
+static void ui_on_open_file(const char *path) { engine_play(path); }
 
 // Current "v2" button wiring (see linux/root/read_buttons_v2.sh and
 // docs/hardware.md). Index order matches the browser action mapping in run().
@@ -40,6 +45,7 @@ VaranUI::VaranUI() {
   printf("VaranUI: constructing\n");
   oled_    = new Display();
   browser_ = new FileSystemBrowser(oled_, "/mnt/SD");
+  browser_->set_open_callback(ui_on_open_file);
   for (int i = 0; i < VARAN_N_BUTTONS; i++) {
     btn_fd_[i]  = -1;
     btn_val_[i] = 0;
@@ -91,7 +97,7 @@ void VaranUI::run() {
 
   hal_keys_start();
 
-  while (!exit_program) {
+  while (!exit_program && !engine_quit_requested()) {
     loop_counter_++;
     read_buttons();
 
