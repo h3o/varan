@@ -15,22 +15,23 @@
 extern "C" {
 #endif
 
-// --- LEDs (the ~27 chip LEDs) ---------------------------------------------
-// Maps to prototype: init_leds_gingko / startup_leds_animation_gingko.
+// --- LEDs (the board's 23-LED matrix: 2x9 + blue) -------------------------
+// Stubbed: the prototype never shipped a VR29x LED driver (only an RDA8810
+// one), so the LED wiring has to come from the board repo before this is real.
 void hal_leds_init(void);
 void hal_leds_startup_animation(void);
 void hal_leds_all_off(void);
 
 // --- Capacitive keyboard (MPR121 on i2c0 @0x5a, 12 electrodes) -------------
-// Maps to: init_keyboard_ginkgo_MPR121 / keys_driver_VARAN[ _stop ].
-// hal_keys_init() returns 0 on success. hal_keys_start() launches the
-// background key-scan thread; hal_keys_stop() tears it down.
+// Implemented in hal/keys.{c,h}. hal_keys_init() returns 0 on success;
+// hal_keys_start() launches the background scan thread, hal_keys_stop() joins it.
 int  hal_keys_init(void);
 void hal_keys_start(void);
 void hal_keys_stop(void);
 
 // --- MIDI (UART1 -> /dev/ttyS0 @ 31250 baud) ------------------------------
-// Maps to: MIDI_driver_init. The 31250 prescaler is applied by
+// Deferred to Phase 1: MIDI-CC playback control belongs to the command surface,
+// not the prototype's synth note parser. The 31250 prescaler is applied by
 // linux/root/uart_prescaler.sh before the app starts.
 int  hal_midi_init(void);
 

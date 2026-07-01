@@ -23,9 +23,24 @@ peripherals through `hal/hal.h`. That single cut removes the entire synth.
 GCC 5.5 toolchain into a real ARM hard-float ELF (`firmware/build/varan`). It
 links only the standard libs — **no `libasound`, no synth** — confirming the cut
 is clean. Migrated so far: the OLED stack (ssd1306 + Waveshare GUI/Fonts, MIT), a
-clean `hal/i2c.{h,c}`, `hal/display.{h,cpp}`, and `app/browser.h`. Still stubbed
-in `hal/hal.c` (next batch, from prototype `hw/`): LEDs, MPR121 cap-touch keys,
-MIDI.
+clean `hal/i2c.{h,c}`, `hal/display.{h,cpp}`, `app/browser.h`, and the MPR121
+cap-touch keyboard `hal/keys.{c,h}`.
+
+**Hardware-validated (2026-07-01):** OLED logo + scroll, GPIO button navigation,
+and SD browsing all work on the device. (OLED orientation fixed by enabling
+`SSD1306_ROTATE` — the prototype defines it for its production board.)
+
+Still stubbed in `hal/hal.c`:
+
+- **LEDs — blocked, not just unmigrated.** The prototype has **no VR29x LED
+  driver**: `init_leds_gingko`/`startup_leds_animation_gingko` live in
+  `peripherals_RDA8810.c` and are only called under `#ifdef BOARD_RDA8810`.
+  `leds.c` contains zero VR291 code; `leds.h` only declares the board's geometry
+  (`LEDS_N 23`, a 2x9 matrix + a blue LED). Wiring the LEDs needs the board's LED
+  circuit (GPIO/driver-chip), which lives in the private board repo.
+- **MIDI — deferred to Phase 1.** The prototype `midi.c` is a synth *note*
+  parser; the player wants MIDI-CC -> playback commands, which is the command
+  surface built in Phase 1.
 
 ## Landed in this repo (clean, MIT, authored fresh)
 
@@ -44,11 +59,11 @@ MIDI.
 | `hw/Display.{cpp,h}` + `hw/oled/ssd1306.*` | `firmware/hal/` | OLED driver used by the browser |
 | `hw/SDcard_browser.h` | `firmware/app/browser.h` | `FileSystemBrowser` |
 | `hw/SDcard_utils.{cpp,h}` | `firmware/app/` | path/listing helpers |
-| `hw/keyboard.{c,h}` | `firmware/hal/` | `init_keyboard_ginkgo_MPR121`, `keys_driver_VARAN[_stop]` |
-| `hw/peripherals.{c,h}` (+ V3s parts only) | `firmware/hal/` | I2C/GPIO base; strip other-board variants |
-| `hw/leds.{c,h}` | `firmware/hal/` | `init_leds_gingko`, `startup_leds_animation_gingko` |
-| `hw/midi.{c,h}` | `firmware/hal/` | `MIDI_driver_init` |
-| `hw/commands.{c,h}` | `firmware/hal/` | `i2c_init` / `i2c_deinit` |
+| `hw/keyboard.{c,h}` | ✅ `hal/keys.{c,h}` | **done** — clean rewrite (MPR121 init + touch scan); dropped the synth aftertouch/velocity/note/menu machinery, and the VR29x `indicate_keyboard` was an empty stub anyway |
+| `hw/peripherals.{c,h}` (+ V3s parts only) | ✅ `hal/i2c.{c,h}` | I2C/GPIO base done as the clean i2c layer |
+| `hw/leds.{c,h}` | ⛔ blocked | no VR29x LED driver exists to migrate (see above); needs board LED wiring |
+| `hw/midi.{c,h}` | ⏭ Phase 1 | synth note parser; player wants MIDI-CC -> playback |
+| `hw/commands.{c,h}` | ✅ `hal/i2c.{c,h}` | `i2c_init` / `i2c_deinit` folded into the i2c layer |
 
 `hw/Settings.*` and `hw/pots.*` are **deferred** — the navigate-only skeleton
 doesn't use them (Settings came in via TrackEngine; this board has no pots).
