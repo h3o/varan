@@ -11,7 +11,7 @@ startup:
 
 | Path | Kind | Direction | Use |
 |---|---|---|---|
-| `/tmp/varan/cmd` | FIFO | write-only, fire-and-forget | scripts / init: `echo play /mnt/SD/x.mp3 > /tmp/varan/cmd` |
+| `/tmp/varan/cmd` | FIFO | write-only, fire-and-forget | scripts / init: `echo play /media/mp3/x.mp3 > /tmp/varan/cmd` |
 | `/tmp/varan/ctl` | Unix stream socket | request → one-line reply | status queries, tooling: `socat - UNIX-CONNECT:/tmp/varan/ctl` |
 
 Commands are newline-terminated. On the socket, each command gets exactly one
@@ -34,12 +34,12 @@ reply line (`OK ...`, a `status` line, or `ERR ...`). The FIFO discards replies.
 
 `status` fields: `state` ∈ `stopped|playing|paused`; `pos`/`dur` in seconds;
 `speed` the tape ratio; `gain` 0–1. Example:
-`state=playing file=/mnt/SD/track.mp3 pos=12.34 dur=210.5 speed=1.000 gain=1.00`.
+`state=playing file=/media/mp3/track.mp3 pos=12.34 dur=210.5 speed=1.000 gain=1.00`.
 
 ### Examples
 
 ```sh
-echo 'play /mnt/SD/track.mp3' > /tmp/varan/cmd     # fire-and-forget
+echo 'play /media/mp3/track.mp3' > /tmp/varan/cmd     # fire-and-forget
 printf 'status\n' | socat - UNIX-CONNECT:/tmp/varan/ctl
 printf 'seek +30\n' | socat - UNIX-CONNECT:/tmp/varan/ctl
 echo 'speed 0.85' > /tmp/varan/cmd                 # slow down (lower pitch)

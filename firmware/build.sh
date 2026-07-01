@@ -19,8 +19,20 @@ if ! command -v "$CXX" >/dev/null 2>&1; then
 fi
 
 OUT_DIR="build"
-OUT="$OUT_DIR/varan"
 mkdir -p "$OUT_DIR"
+
+# Resampler quality: SRC_QUALITY=fast (default) or medium. Medium also compiles
+# in libsamplerate's mid_qual sinc table and writes a separate build/varan-medium
+# so the two can be A/B compared.
+SRC_QUALITY="${SRC_QUALITY:-fast}"
+LSR_QUAL_DEF=()
+SRC_QUAL_DEF=()
+OUT="$OUT_DIR/varan"
+if [ "$SRC_QUALITY" = "medium" ]; then
+  LSR_QUAL_DEF=(-DENABLE_SINC_MEDIUM_CONVERTER)
+  SRC_QUAL_DEF=(-DVARAN_SRC_MEDIUM)
+  OUT="$OUT_DIR/varan-medium"
+fi
 
 # Everything is compiled as C++ (the prototype does the same; that's why the .c
 # drivers link against the C++ TUs without extern "C").
@@ -68,13 +80,13 @@ LSR_OBJS=()
 for s in "${LSR_SRC[@]}"; do
   obj="$OUT_DIR/lsr_${s%.c}.o"
   echo "CC  $LSR_DIR/$s"
-  "$CC" -O2 -ffast-math -std=gnu99 -DHAVE_CONFIG_H "-I${LSR_DIR}" -c "$LSR_DIR/$s" -o "$obj"
+  "$CC" -O2 -ffast-math -std=gnu99 -DHAVE_CONFIG_H "${LSR_QUAL_DEF[@]}" "-I${LSR_DIR}" -c "$LSR_DIR/$s" -o "$obj"
   LSR_OBJS+=("$obj")
 done
 
-echo "CXX: $CXX"
+echo "CXX: $CXX  (SRC_QUALITY=$SRC_QUALITY)"
 echo "Building $OUT ..."
-"$CXX" "${CXXFLAGS[@]}" "${DEFINES[@]}" "${INCLUDES[@]}" "${SRC[@]}" "${LSR_OBJS[@]}" -o "$OUT" "${LIBS[@]}"
+"$CXX" "${CXXFLAGS[@]}" "${DEFINES[@]}" "${SRC_QUAL_DEF[@]}" "${INCLUDES[@]}" "${SRC[@]}" "${LSR_OBJS[@]}" -o "$OUT" "${LIBS[@]}"
 
 echo "Built: $OUT"
 "${TOOLCHAIN}size" "$OUT" 2>/dev/null || true

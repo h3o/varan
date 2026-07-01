@@ -5,9 +5,19 @@
 
 #include "audio/resampler.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "samplerate.h"  // vendored libsamplerate (extern "C")
+
+// Converter quality is chosen at build time (see firmware/build.sh SRC_QUALITY):
+// FAST by default, MEDIUM if built with -DVARAN_SRC_MEDIUM. The MEDIUM converter
+// also needs ENABLE_SINC_MEDIUM_CONVERTER + mid_qual_coeffs.h at compile time.
+#ifdef VARAN_SRC_MEDIUM
+#define VARAN_SRC_CONVERTER SRC_SINC_MEDIUM_QUALITY
+#else
+#define VARAN_SRC_CONVERTER SRC_SINC_FASTEST
+#endif
 
 // Scratch sizing. The engine feeds <= 2048 input frames per call; at the slowest
 // speed (0.25 => ratio 4) that yields ~8192 output frames.
@@ -27,7 +37,8 @@ resampler *resampler_create(int channels) {
   if (!r) return 0;
   r->channels = channels;
   int err = 0;
-  r->state = src_new(SRC_SINC_FASTEST, channels, &err);
+  r->state = src_new(VARAN_SRC_CONVERTER, channels, &err);
+  printf("resampler: %s\n", src_get_name(VARAN_SRC_CONVERTER));
   r->in_f  = (float *)malloc((size_t)RS_IN_MAX * channels * sizeof(float));
   r->out_f = (float *)malloc((size_t)RS_OUT_MAX * channels * sizeof(float));
   if (!r->state || !r->in_f || !r->out_f) {

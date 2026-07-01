@@ -44,7 +44,7 @@ static const struct {
 VaranUI::VaranUI() {
   printf("VaranUI: constructing\n");
   oled_    = new Display();
-  browser_ = new FileSystemBrowser(oled_, "/mnt/SD");
+  browser_ = new FileSystemBrowser(oled_, "/media/mp3");
   browser_->set_open_callback(ui_on_open_file);
   for (int i = 0; i < VARAN_N_BUTTONS; i++) {
     btn_fd_[i]  = -1;
