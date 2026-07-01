@@ -21,6 +21,10 @@
 #define PIO_MAP_LEN   0x1000u      // one 4K page covers all ports
 #define WORD(byte_off) ((byte_off) / 4u)
 
+// Startup animation timing (tune to taste).
+#define LEDS_ANIM_STEP_US   80000   // dwell per ring position
+#define LEDS_ANIM_FLASH_US  120000  // all-on flash, on and off
+
 // Per-port DATA register indexes (word offsets within the mapped page).
 #define PB_DAT WORD(0x800 + 0x34)
 #define PE_DAT WORD(0x800 + 0xA0)
@@ -137,17 +141,17 @@ void leds_startup_animation(void) {
   for (int i = 0; i < 9; i++) {
     leds_set(ring_out[i], 1);
     leds_set(ring_in[i], 1);
-    usleep(45000);
+    usleep(LEDS_ANIM_STEP_US);
     leds_set(ring_out[i], 0);
     leds_set(ring_in[i], 0);
   }
 
-  // Two quick all-on flashes.
+  // Two all-on flashes.
   for (int f = 0; f < 2; f++) {
     leds_all(1);
-    usleep(80000);
+    usleep(LEDS_ANIM_FLASH_US);
     leds_all_off();
-    usleep(80000);
+    usleep(LEDS_ANIM_FLASH_US);
   }
 
   // Settle: everything off, power LED lit.
